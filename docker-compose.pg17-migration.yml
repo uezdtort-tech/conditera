@@ -24,6 +24,8 @@ services:
       - config_file=/etc/postgresql/postgresql.conf
       - -c
       - cron.database_name=supabase
+      - -c
+      - cron.username=supabase_admin
     environment:
       POSTGRES_USER: supabase_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
@@ -66,7 +68,7 @@ services:
     profiles: ["pg17-migration"]
     restart: "no"
     environment:
-      PGRST_DB_URI: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db-pg17-migration:5432/supabase
       PGRST_DB_SCHEMAS: public,storage,graphql_public
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}

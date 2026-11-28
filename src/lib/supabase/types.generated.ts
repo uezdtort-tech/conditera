@@ -50,6 +50,7 @@ export type Database = {
           id: string
           user_id: string | null
           session_id: string | null
+          cart_fingerprint: string | null
           cart_items: Json
           cart_total: number
           cart_items_count: number
@@ -66,6 +67,7 @@ export type Database = {
           id?: string
           user_id?: string | null
           session_id?: string | null
+          cart_fingerprint?: string | null
           cart_items: Json
           cart_total?: number
           cart_items_count?: number
@@ -82,6 +84,7 @@ export type Database = {
           id?: string
           user_id?: string | null
           session_id?: string | null
+          cart_fingerprint?: string | null
           cart_items?: Json
           cart_total?: number
           cart_items_count?: number

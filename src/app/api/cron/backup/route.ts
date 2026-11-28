@@ -60,19 +60,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         status: result.success ? "success" : "failed",
         finishedAt: new Date().toISOString(),
         durationMs: result.durationMs,
-        backup_path: result.backupPath,
-        backup_size_bytes: result.backupSizeBytes,
-        tables_count: result.tablesCount,
+        backupPath: result.backupPath,
+        backupSizeBytes: result.backupSizeBytes,
+        tablesCount: result.tablesCount,
         recordsAffected: result.recordsExported,
         details: {
           oldBackupsDeleted: oldDeleted,
           backupPath: result.backupPath,
+          manifestPath: result.manifestPath || null,
           backupSizeBytes: result.backupSizeBytes,
           tablesCount: result.tablesCount,
           recordsExported: result.recordsExported,
           durationMs: result.durationMs,
         },
-        error_message: result.errorMessage || null,
+        errorMessage: result.errorMessage || null,
       })
       .eq("id", log.id);
 
@@ -83,6 +84,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       success: result.success,
       backupPath: result.backupPath,
+      manifestPath: result.manifestPath || null,
       backupSizeBytes: result.backupSizeBytes,
       tablesCount: result.tablesCount,
       recordsExported: result.recordsExported,
@@ -97,7 +99,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .update({
         status: "failed",
         finishedAt: new Date().toISOString(),
-        error_message: error?.message ?? "Unknown error",
+        errorMessage: error?.message ?? "Unknown error",
       })
       .eq("id", log.id);
 

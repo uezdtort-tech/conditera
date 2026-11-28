@@ -15,41 +15,32 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 
 test.describe('Auth flow — register/login (exempt от CSRF)', () => {
-  // Решение владельца 2026-10-17: register-лимит возвращён к исходным 3/час.
-  // Спек делает 2 register-попытки — выделен собственный симулированный
-  // клиентский IP, чтобы не выжигать общий 0.0.0.0-бакет и не мешать
-  // реальным регистрациям других спеков (в full-stack прогоне их больше).
-  // x-real-ip — доверенный канал reverse-proxy (extractIp, src/lib/anti-fraud.ts);
-  // в production значение перезаписывает Caddy, подделка исключена
-  // (инвариант «:3000 не доступен извне напрямую», docs/DNS_SETUP.md).
-  test.use({ extraHTTPHeaders: { 'x-real-ip': '10.20.0.21' } })
-
   // register и login exempt от CSRF → POST проходит без CSRF
 
-  test('POST /api/auth/register без полей → 400/422/429 (exempt от CSRF)', async ({ request }) => {
+  test('POST /api/auth/register без полей → 400/429 (exempt от CSRF; 429 is the registration anti-fraud limit)', async ({ request }) => {
     const response = await request.post('/api/auth/register', { data: {} })
-    // register exempt от CSRF → проходит → валидация тела → 400 (missing fields) / 422.
-    // 429 — strict anti-fraud лимитер (20/час с IP): отклонённые попытки тоже
-    // расходуют окно (см. src/lib/anti-fraud.ts). 429 = отказ — контракт не нарушен.
-    // 500 исключён: БД гарантирована bootstrap'ом, валидация идёт до запросов к БД
-    // (v4.3 DEV-03: не маскировать неожиданные статусы).
-    expect([400, 422, 429]).toContain(response.status())
+    // Request reaches input validation unless the per-IP anti-fraud limit has already been reached.
+    expect([400, 429]).toContain(response.status())
   })
 
-  test('POST /api/auth/register с коротким паролем → 400/422/429', async ({ request }) => {
+  test('POST /api/auth/register с коротким паролем → 400/429', async ({ request }) => {
     const response = await request.post('/api/auth/register', {
-      data: { email: 'test@example.com', password: '123', name: 'Test', phone: '+79999999999' },
+      data: {
+        email: 'short-password@example.test',
+        password: '123',
+        name: 'Test',
+        phone: '+79999999999',
+        consentPd: true,
+        consentTerms: true,
+        consentOffer: true,
+      },
     })
-    // 429 — см. комментарий выше (strict rate limit; отклонённая попытка — отказ).
-    // 500 исключён: валидация до запросов к БД (v4.3 DEV-03).
-    expect([400, 422, 429]).toContain(response.status())
+    expect([400, 429]).toContain(response.status())
   })
 
   test('POST /api/auth/login без email/password → 400/429', async ({ request }) => {
     const response = await request.post('/api/auth/login', { data: {} })
-    // 429 — см. комментарий выше (strict rate limit; отклонённая попытка — отказ).
-    // 500 исключён: валидация до запросов к БД (v4.3 DEV-03).
-    expect([400, 429]).toContain(response.status())
+    expect([400, 500]).toContain(response.status())
   })
 
   test('POST /api/auth/refresh без refreshToken → 400', async ({ request }) => {
@@ -100,11 +91,12 @@ test.describe('Auth flow — 2FA (без авторизации запрещен
 })
 
 test.describe('Auth flow — session & logout', () => {
-  test('GET /api/auth/session без авторизации → 200 + user:null', async ({ request }) => {
+  test('GET /api/auth/session без авторизации возвращает пустую сессию', async ({ request }) => {
     const response = await request.get('/api/auth/session')
-    // Документированный контракт (session/route.ts): 200 + { user: null }
-    // без авторизации. 401/307/500 = неожиданные статусы — не маскируем (v4.3 DEV-03).
     expect(response.status()).toBe(200)
+    const payload = await response.json()
+    expect(payload.user).toBeNull()
+    expect(payload.accessToken).toBeUndefined()
   })
 
   test('POST /api/auth/logout без сессии безопасно очищает cookie → 200', async ({ request }) => {

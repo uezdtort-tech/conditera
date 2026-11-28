@@ -1,6 +1,6 @@
 {
   "name": "📦 Управление складом — алерты поставщикам о низких остатках",
-  "active": true,
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -26,7 +26,6 @@
       "parameters": {
         "method": "GET",
         "url": "={{ $env.APP_URL }}/api/supplier/warehouse?lowStock=1",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -100,7 +99,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/notifications/send",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -143,7 +141,6 @@
       "parameters": {
         "method": "POST",
         "url": "={{ $env.APP_URL }}/api/cron/status",
-        "authentication": "headerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [

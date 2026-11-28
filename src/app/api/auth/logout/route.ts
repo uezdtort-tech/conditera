@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { clearSessionCookies } from "@/lib/session-cookies";
+import { clearSessionCookies, SESSION_COOKIE } from "@/lib/session-cookies";
+import { verifyAccessToken } from "@/lib/auth";
+import { revokeUserSession } from "@/lib/session-registry";
 
 /**
  * POST /api/auth/logout — выход из системы.
@@ -13,6 +15,20 @@ import { clearSessionCookies } from "@/lib/session-cookies";
  */
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // При явном Bearer-заголовке используем именно указанный токен,
+  // как и getUserFromRequest(); cookie — fallback для браузерного logout.
+  const bearerToken = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const appToken = bearerToken || request.cookies.get(SESSION_COOKIE)?.value;
+  if (appToken) {
+    const payload = await verifyAccessToken(appToken);
+    if (typeof payload?.sid === "string" && typeof payload.userId === "string") {
+      const revoked = await revokeUserSession(payload.sid, payload.userId, "user_logout");
+      if (!revoked) {
+        return NextResponse.json({ error: "Не удалось завершить серверную сессию" }, { status: 503 });
+      }
+    }
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 

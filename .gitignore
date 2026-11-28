@@ -34,10 +34,6 @@ yarn-error.log*
 .env*
 !.env.local.example
 !.env.production.example
-# mailu.env — секреты почтового сервера (профиль mail/full), коммитить запрещено;
-# шаблон имён ключей — mailu.env.template
-/mailu.env
-.merge-ws/
 !.env.supabase-runtime.example
 
 # vercel
@@ -51,8 +47,6 @@ local-*
 .claude
 .z-ai-config
 *.log
-# exception: evidence logs are primary release-gate proof (unique name + SHA), keep tracked
-!docs/evidence/**/*.log
 dev.log
 dev.out.log
 test
@@ -75,12 +69,6 @@ playwright-report/
 /backups/
 /tool-results/
 /upload/
-# Agent deployment logs (автоматический журнал развёртывания — append-only, локально)
-logs/
-tsconfig.tsbuildinfo
-
-# dev-process-manager runtime state (PIDs/fingerprints — never commit)
-/.run/
 
 # sandbox PID churn — не отслеживать
 .zscripts/dev.pid
@@ -94,6 +82,4 @@ upload/storage/
 
 # Товарные медиа (storage каталог сидов/uploads продуктовых медиа)
 /storage/
-
-# D13 durable: вложенный v2-репозиторий (свой git; игнор => git clean -fd не трогает)
-conditera-v2/
+.secrets/

@@ -1,161 +1,120 @@
 /**
- * GET /api/courier/deliveries — доставки курьера (активные и завершённые).
- *
- * Query параметры:
- *  - status: active | past | all (по умолчанию all)
- *  - limit: 1-200 (по умолчанию 50)
- *
- * Auth: COURIER role.
- *
- * Соответствует таблицам:
- *  - orders (доставки курьера)
- *  - order_items (данные позиций)
- *  - profiles (данные покупателя)
- *  - confectioners (данные кондитера)
+ * GET /api/courier/deliveries — доставки текущего курьера.
+ * Назначение хранится в deliveries.courier_id; orders не содержит courier_id.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getUserFromRequest } from "@/lib/auth";
 import { requireRole } from "@/lib/role-guards";
-import { getCourierOrderIds } from "@/lib/courier-assignments";
 
 export const runtime = "nodejs";
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
+const ACTIVE_STATUSES = ["assigned", "picked_up", "on_the_way"];
+const PAST_STATUSES = ["delivered", "failed"];
 
-const ACTIVE_STATUSES = ["READY", "IN_DELIVERY"];
-const PAST_STATUSES = ["DELIVERED", "COMPLETED", "CANCELLED", "REFUNDED"];
-
-/**
- * GET /api/courier/deliveries — список доставок курьера.
- */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await getUserFromRequest(request);
-    if (!user) {
-      return NextResponse.json(
-        { error: "Не авторизован" },
-        { status: 401 }
-      );
-    }
+    if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
 
-    // Проверка роли — только COURIER
     const guard = await requireRole(user.id, "COURIER");
-    if (guard) {
-      return new NextResponse(guard.body, {
-        status: guard.status,
-        headers: guard.headers,
-      });
-    }
+    if (guard) return new NextResponse(guard.body, { status: guard.status, headers: guard.headers });
 
-    const courierId = user.id;
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get("status") || "all";
-    const limit = Math.min(
-      parseInt(searchParams.get("limit") || String(DEFAULT_LIMIT), 10),
+    const limit = Math.max(1, Math.min(
+      parseInt(searchParams.get("limit") || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT,
       MAX_LIMIT
-    );
+    ));
 
-    // Базовый запрос — заказы текущего курьера.
-    // P1 (courier-schema): назначение — deliveries.courier_id (orders.courier_id
-    // в реальной схеме нет) → сначала id назначенных заказов.
-    const myOrderIds = await getCourierOrderIds(courierId);
-    let query = supabaseAdmin
-      .from("orders")
-      .select(
-        `
-        id, number, status, total, delivery_cost, delivery_address,
-        delivery_date, delivery_time, payment_status, created_at,
-        updated_at, user_id, confectioner_id
-      `
-      )
-      .in("id", myOrderIds.length > 0 ? myOrderIds : ["00000000-0000-0000-0000-000000000000"])
+    let deliveryQuery = supabaseAdmin
+      .from("deliveries")
+      .select("id, order_id, status, address, estimated_time, cost, courier_earnings, created_at, updated_at, delivered_at")
+      .eq("courier_id", user.id)
       .order("updated_at", { ascending: false })
       .limit(limit);
 
-    if (statusFilter === "active") {
-      query = query.in("status", ACTIVE_STATUSES);
-    } else if (statusFilter === "past") {
-      query = query.in("status", PAST_STATUSES);
+    if (statusFilter === "active") deliveryQuery = deliveryQuery.in("status", ACTIVE_STATUSES);
+    else if (statusFilter === "past") deliveryQuery = deliveryQuery.in("status", PAST_STATUSES);
+
+    const { data: deliveryRows, error: deliveryError } = await deliveryQuery;
+    if (deliveryError) {
+      console.error("[courier/deliveries] delivery query failed:", deliveryError.message);
+      return NextResponse.json({ error: "Database query failed" }, { status: 503 });
+    }
+    if (!deliveryRows?.length) return NextResponse.json({ deliveries: [], total: 0 });
+
+    const orderIds = [...new Set(deliveryRows.map((delivery: any) => delivery.order_id))];
+    const { data: orders, error: ordersError } = await supabaseAdmin
+      .from("orders")
+      .select("id, number, status, total, delivery_cost, delivery_address, delivery_date, delivery_time, payment_status, created_at, updated_at, user_id, confectioner_id")
+      .in("id", orderIds);
+    if (ordersError) {
+      console.error("[courier/deliveries] order lookup failed:", ordersError.message);
+      return NextResponse.json({ error: "Order details unavailable" }, { status: 503 });
     }
 
-    const { data: deliveries, error } = await query;
+    const orderMap = new Map<string, any>();
+    for (const order of orders || []) orderMap.set(order.id, order);
+    const userIds = [...new Set((orders || []).map((order: any) => order.user_id).filter(Boolean))];
+    const confectionerIds = [...new Set((orders || []).map((order: any) => order.confectioner_id).filter(Boolean))];
 
-    if (error) {
-      console.error("[courier/deliveries] query error:", error.message);
-      return NextResponse.json(
-        { error: "Database query failed", details: error.message },
-        { status: 500 }
-      );
-    }
-
-    if (!deliveries || deliveries.length === 0) {
-      return NextResponse.json({ deliveries: [], total: 0 });
-    }
-
-    // Получить items, customers, confectioners одним batch-запросом
-    const orderIds = deliveries.map((o: any) => o.id);
-    const userIds = deliveries.map((o: any) => o.user_id).filter(Boolean);
-    const confIds = deliveries.map((o: any) => o.confectioner_id).filter(Boolean);
-
-    const [itemsResult, customersResult, confResult] = await Promise.all([
-      supabaseAdmin
-        .from("order_items")
-        .select("id, order_id, title, image, quantity")
-        .in("order_id", orderIds),
-      supabaseAdmin
-        .from("profiles")
-        .select("id, name, phone")
-        .in("id", userIds),
-      confIds.length > 0
-        ? supabaseAdmin
-            .from("confectioners")
-            .select("id, businessName, city")
-            .in("id", confIds)
+    const [itemsResult, customersResult, confectionersResult] = await Promise.all([
+      supabaseAdmin.from("order_items").select("id, order_id, title, image, quantity").in("order_id", orderIds),
+      userIds.length
+        ? supabaseAdmin.from("profiles").select("id, name, phone").in("id", userIds)
+        : Promise.resolve({ data: [], error: null }),
+      confectionerIds.length
+        ? supabaseAdmin.from("confectioners").select("id, businessName, city").in("id", confectionerIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
+    for (const result of [itemsResult, customersResult, confectionersResult]) {
+      if (result.error) {
+        console.error("[courier/deliveries] related data lookup failed:", result.error.message);
+        return NextResponse.json({ error: "Delivery details unavailable" }, { status: 503 });
+      }
+    }
 
-    // Сгруппировать items по order_id
     const itemsByOrder = new Map<string, any[]>();
     for (const item of itemsResult.data || []) {
-      const arr = itemsByOrder.get(item.order_id) || [];
-      arr.push(item);
-      itemsByOrder.set(item.order_id, arr);
+      const list = itemsByOrder.get(item.order_id) || [];
+      list.push(item);
+      itemsByOrder.set(item.order_id, list);
     }
-
     const customerMap = new Map<string, any>();
-    for (const c of customersResult.data || []) {
-      customerMap.set(c.id, c);
-    }
-    const confMap = new Map<string, any>();
-    for (const c of confResult.data || []) {
-      confMap.set(c.id, c);
-    }
+    for (const customer of customersResult.data || []) customerMap.set(customer.id, customer);
+    const confectionerMap = new Map<string, any>();
+    for (const confectioner of confectionersResult.data || []) confectionerMap.set(confectioner.id, confectioner);
 
-    const result = deliveries.map((o: any) => ({
-      id: o.id,
-      number: o.number,
-      status: o.status,
-      total: Number(o.total),
-      delivery_cost: Number(o.delivery_cost || 0),
-      delivery_address: o.delivery_address,
-      delivery_date: o.delivery_date,
-      delivery_time: o.delivery_time,
-      payment_status: o.payment_status,
-      created_at: o.created_at,
-      updated_at: o.updated_at,
-      items: itemsByOrder.get(o.id) || [],
-      customer: customerMap.get(o.user_id) || null,
-      confectioner: confMap.get(o.confectioner_id) || null,
-    }));
+    const result = deliveryRows.map((delivery: any) => {
+      const order = orderMap.get(delivery.order_id);
+      return {
+        id: order?.id || delivery.order_id,
+        delivery_id: delivery.id,
+        number: order?.number || delivery.order_id,
+        status: order?.status || delivery.status,
+        delivery_status: delivery.status,
+        total: Number(order?.total || 0),
+        delivery_cost: Number(delivery.cost || order?.delivery_cost || 0),
+        courier_earnings: Number(delivery.courier_earnings || 0),
+        delivery_address: delivery.address,
+        delivery_date: order?.delivery_date || null,
+        delivery_time: delivery.estimated_time || order?.delivery_time || null,
+        payment_status: order?.payment_status || null,
+        created_at: delivery.created_at,
+        updated_at: delivery.updated_at,
+        delivered_at: delivery.delivered_at,
+        items: itemsByOrder.get(delivery.order_id) || [],
+        customer: order?.user_id ? customerMap.get(order.user_id) || null : null,
+        confectioner: order?.confectioner_id ? confectionerMap.get(order.confectioner_id) || null : null,
+      };
+    });
 
     return NextResponse.json({ deliveries: result, total: result.length });
   } catch (error: any) {
     console.error("GET /api/courier/deliveries error:", error?.message);
-    return NextResponse.json(
-      { error: "Внутренняя ошибка", detail: error?.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Внутренняя ошибка" }, { status: 500 });
   }
 }

@@ -11,38 +11,9 @@
 #      НЕ напрямую к web:3000 — иначе при рестарте Next.js будет 502.
 
 # Основной домен + www-редирект
-conditera.ru, www.conditera.ru {
+conditera.ru {
         # Редирект www → корень (если зашли на www.conditera.ru)
         # (Caddy автоматически делает это через 'www.conditera.ru' в сертификате)
-
-        # ===== Доверенный прокси: X-Real-IP (v4.6, P0-antifraud) =====
-        # Приложение (extractIp/getClientIP) доверяет ТОЛЬКО перезаписанному
-        # proxy-значению X-Real-IP. Без header_up клиентский (подделанный)
-        # X-Real-IP прошёл бы сквозь Caddy нетронутым → обход per-IP rate-limit.
-        #
-        # Фактическая цепочка ingress — ДВЕ топологии (обе поддержаны ниже):
-        #   A) Прямой доступ: клиент → Caddy :80/:443. Пир Caddy = КЛИЕНТ.
-        #   B) Cloudflare Tunnel: клиент → CF edge (edge ПЕРЕЗАПИСЫВАЕТ
-        #      CF-Connecting-IP, подделать нельзя) → cloudflared (outbound
-        #      к CF, приём только из туннеля) → http://localhost:80 → Caddy.
-        #      Пир Caddy = ЛОКАЛЬНЫЙ cloudflared (127.0.0.1/::1) — НЕ клиент!
-        #      Брать {remote_host} в топологии B нельзя: все клиенты схлопнутся
-        #      в один бакет 127.0.0.1 (3 регистрации/час НА ВЕСЬ САЙТ).
-        #
-        # Решение — условная перезапись по peer (матчер @loopback_peer):
-        #   • peer из loopback (tunnel) → X-Real-IP := CF-Connecting-IP
-        #     (установлен CF edge, через туннельный путь не подделывается);
-        #   • иначе (прямой клиент) → X-Real-IP := {remote_host} (реальный TCP-
-        #     адрес пира), а клиентский CF-Connecting-IP УДАЛЯЕТСЯ (подделка
-        #     невозможна по построению: X-Real-IP всегда перезаписан, и приложение
-        #     проверяет x-real-ip ДО cf-connecting-ip).
-        # Требование целостности пути B: cloudflared принимает запросы ТОЛЬКО
-        # из туннеля Cloudflare (собственный протокол, outbound-соединения) —
-        # прямая инъекция в cloudflared извне отсутствует.
-        # См. docs/DNS_SETUP.md, раздел «Доверенный прокси».
-        @loopback_peer {
-                remote_ip 127.0.0.1 ::1
-        }
 
         # ===== Маршрутизация Supabase и API приложения =====
         # NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api.
@@ -76,25 +47,8 @@ conditera.ru, www.conditera.ru {
         }
 
         # Остальные /api/* — Route Handlers Next.js.
-        # Доверенный прокси (v4.6): топология A (прямой клиент) / B (cloudflared).
         handle /api/* {
-                # Топология B: peer — локальный cloudflared
-                reverse_proxy @loopback_peer web:3000 {
-                        header_up X-Real-IP {header.CF-Connecting-IP}
-                        # Health check — опрашивает /api/health каждые 10с
-                        health_uri /api/health
-                        health_interval 10s
-                        # Таймауты для медленных API (генерация PDF, поиск, и т.д.)
-                        transport http {
-                                read_timeout 60s
-                                write_timeout 60s
-                                dial_timeout 5s
-                        }
-                }
-                # Топология A: peer — прямой клиент
                 reverse_proxy web:3000 {
-                        header_up X-Real-IP {remote_host}
-                        header_up -CF-Connecting-IP
                         health_uri /api/health
                         health_interval 10s
                         transport http {
@@ -109,17 +63,8 @@ conditera.ru, www.conditera.ru {
 
         # WebSocket (Socket.IO чат)
         handle /socket.io/* {
-                reverse_proxy @loopback_peer chat-service:3030 {
-                        header_up X-Real-IP {header.CF-Connecting-IP}
-                        # WebSocket требует долгих таймаутов
-                        transport http {
-                                read_timeout 300s
-                                write_timeout 300s
-                        }
-                }
                 reverse_proxy chat-service:3030 {
-                        header_up X-Real-IP {remote_host}
-                        header_up -CF-Connecting-IP
+                        # WebSocket требует долгих таймаутов
                         transport http {
                                 read_timeout 300s
                                 write_timeout 300s
@@ -127,18 +72,9 @@ conditera.ru, www.conditera.ru {
                 }
         }
 
-        # n8n (вебхуки автоматизации) — защищён basic auth внутри n8n.
-        # v4.6: та же политика доверенного X-Real-IP, что для web/chat —
-        # n8n пишет client IP в логи/execution data; без перезаписи клиент
-        # подделывал бы заголовок в журналах автоматизации.
+        # n8n UI/API не публикуется наружу. Локальный доступ владельца — 127.0.0.1:5678.
         handle /n8n/* {
-                reverse_proxy @loopback_peer n8n:5678 {
-                        header_up X-Real-IP {header.CF-Connecting-IP}
-                }
-                reverse_proxy n8n:5678 {
-                        header_up X-Real-IP {remote_host}
-                        header_up -CF-Connecting-IP
-                }
+                respond "Not Found" 404
         }
 
         # Health-check endpoint для Cloudflare Tunnel / UptimeRobot
@@ -149,19 +85,7 @@ conditera.ru, www.conditera.ru {
 
         # Всё остальное — Next.js (SSR/SSG)
         handle {
-                reverse_proxy @loopback_peer web:3000 {
-                        header_up X-Real-IP {header.CF-Connecting-IP}
-                        health_uri /api/health
-                        health_interval 10s
-                        transport http {
-                                read_timeout 30s
-                                write_timeout 30s
-                                dial_timeout 5s
-                        }
-                }
                 reverse_proxy web:3000 {
-                        header_up X-Real-IP {remote_host}
-                        header_up -CF-Connecting-IP
                         health_uri /api/health
                         health_interval 10s
                         transport http {
@@ -230,28 +154,19 @@ conditera.ru, www.conditera.ru {
         # }
 }
 
-# SimpleX SMP сервер — отдельный блок (порт 5223 проксируем в Caddy)
-# Альтернатива: открываем порт 5223 напрямую (см. docker-compose)
+# Единственный канонический host — без www (совпадает с canonical URL приложения).
+www.conditera.ru {
+        redir https://conditera.ru{uri} permanent
+}
+
+# SimpleX SMP — опциональный профиль. Публичный endpoint не включается в первом production-релизе.
 smp.conditera.ru {
-        reverse_proxy smp-server:5223 {
-                transport http {
-                        # SimpleX использует TCP+TLS, не HTTP — этот блок только если проксируем
-                        # через Caddy. Обычно SMP-сервер открывается напрямую на 5223.
-                }
-        }
-        header {
-                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        }
+        respond "Not Found" 404
 }
 
 # Для localhost (разработка без домена)
 localhost {
-        reverse_proxy web:3000 {
-                # Дев-паритет с prod: приложение доверяет только переписанному
-                # X-Real-IP. Дев-топология без туннеля: пир = локальный клиент.
-                header_up X-Real-IP {remote_host}
-                header_up -CF-Connecting-IP
-        }
+        reverse_proxy web:3000
 }
 
 # ===== Cloudflare Tunnel: recommended config.yml =====

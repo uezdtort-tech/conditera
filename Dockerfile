@@ -13,28 +13,17 @@
 # ====================================================================
 
 # --- Этап 1: Dependencies (all, including dev) ---
-# v2 (e2e-fix): bun + bun.lock вместо npm. Прежний `npm install --no-package-lock`
-# игнорировал bun.lock и разрешал зависимости по диапазонам — недетерминированное
-# дерево (частая причина падений docker-build в CI). `bun install --frozen-lockfile`
-# воспроизводит ровно то дерево, на котором проходят lint/test/build в CI.
-# v3 (registry-hardening): базовые образы берём из public.ecr.aws (анонимные pull,
-# без rate-limit 429 Docker Hub, на который ловил CI). oven/bun публичных зеркал не
-# имеет — bun-CLI ставится из npm registry поверх node (musl-бинарь @oven/…-musl).
-# merge с origin/main (Dependabot PR #10/#11): node 20 → 26, зеркало ECR сохранено.
-FROM public.ecr.aws/docker/library/node:26-alpine AS deps
+FROM oven/bun:1.4.5-alpine AS deps
 WORKDIR /app
 
-RUN npm install -g bun@1 && bun --version
+# Копируем package файлы
+COPY package.json bun.lock ./.npmrc ./
 
-COPY package.json bun.lock ./
-COPY .npmrc* ./
-
-# Все зависимости (нужны dev для build); native-пакеты из trustedDependencies
-# получают postinstall (embedded-postgres и т.п. билду не мешают)
+# Устанавливаем ВСЕ зависимости (нужны dev для build)
 RUN bun install --frozen-lockfile
 
 # --- Этап 2: Build ---
-FROM public.ecr.aws/docker/library/node:26-alpine AS builder
+FROM oven/bun:1.4.5-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -44,15 +33,70 @@ COPY . .
 ARG GIT_SHA=unknown
 ENV APP_VERSION=${GIT_SHA}
 
+# Next.js встраивает NEXT_PUBLIC_* значения в клиентские чанки ВО ВРЕМЯ build.
+# Runtime env_file не может исправить уже собранный JS, поэтому все публичные
+# production-параметры передаются отдельными build args через Compose.
+# Здесь нет серверных секретов: anon key является публичным RLS-ключом.
+ARG NEXT_PUBLIC_APP_URL=https://conditera.ru
+ARG NEXT_PUBLIC_SUPABASE_URL=https://conditera.ru/api
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=
+ARG NEXT_PUBLIC_YANDEX_METRIKA_ID=111432662
+ARG NEXT_PUBLIC_APP_NAME
+ARG NEXT_PUBLIC_APP_DESCRIPTION
+ARG NEXT_PUBLIC_SUPPORT_EMAIL=support@conditera.ru
+ARG NEXT_PUBLIC_INFO_EMAIL=info@conditera.ru
+ARG NEXT_PUBLIC_PRIVACY_EMAIL=privacy@conditera.ru
+ARG NEXT_PUBLIC_SUPPORT_PHONE
+ARG NEXT_PUBLIC_SUPPORT_PHONE_HREF=+78000000000
+ARG NEXT_PUBLIC_COMPANY_ADDRESS=
+ARG NEXT_PUBLIC_COMPANY_INN=
+ARG NEXT_PUBLIC_COMPANY_OGRN=
+ARG NEXT_PUBLIC_TELEGRAM_CHANNEL=@conditera
+ARG NEXT_PUBLIC_TELEGRAM_URL=https://t.me/conditera
+ARG NEXT_PUBLIC_VK_URL=
+ARG NEXT_PUBLIC_INSTAGRAM_URL=
+ARG NEXT_PUBLIC_LEGAL_NAME=
+ARG NEXT_PUBLIC_LEGAL_ADDRESS=
+ARG NEXT_PUBLIC_FOUNDED_YEAR=2024
+ARG NEXT_PUBLIC_CHAT_URL="/?XTransformPort=3030"
+ARG NEXT_PUBLIC_SENTRY_DSN=
+ARG SUPABASE_STORAGE_HOSTNAME=
+ARG SUPABASE_STORAGE_PROTOCOL=https
+
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
+    NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL} \
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY} \
+    NEXT_PUBLIC_YANDEX_METRIKA_ID=${NEXT_PUBLIC_YANDEX_METRIKA_ID} \
+    NEXT_PUBLIC_APP_NAME=${NEXT_PUBLIC_APP_NAME} \
+    NEXT_PUBLIC_APP_DESCRIPTION=${NEXT_PUBLIC_APP_DESCRIPTION} \
+    NEXT_PUBLIC_SUPPORT_EMAIL=${NEXT_PUBLIC_SUPPORT_EMAIL} \
+    NEXT_PUBLIC_INFO_EMAIL=${NEXT_PUBLIC_INFO_EMAIL} \
+    NEXT_PUBLIC_PRIVACY_EMAIL=${NEXT_PUBLIC_PRIVACY_EMAIL} \
+    NEXT_PUBLIC_SUPPORT_PHONE=${NEXT_PUBLIC_SUPPORT_PHONE} \
+    NEXT_PUBLIC_SUPPORT_PHONE_HREF=${NEXT_PUBLIC_SUPPORT_PHONE_HREF} \
+    NEXT_PUBLIC_COMPANY_ADDRESS=${NEXT_PUBLIC_COMPANY_ADDRESS} \
+    NEXT_PUBLIC_COMPANY_INN=${NEXT_PUBLIC_COMPANY_INN} \
+    NEXT_PUBLIC_COMPANY_OGRN=${NEXT_PUBLIC_COMPANY_OGRN} \
+    NEXT_PUBLIC_TELEGRAM_CHANNEL=${NEXT_PUBLIC_TELEGRAM_CHANNEL} \
+    NEXT_PUBLIC_TELEGRAM_URL=${NEXT_PUBLIC_TELEGRAM_URL} \
+    NEXT_PUBLIC_VK_URL=${NEXT_PUBLIC_VK_URL} \
+    NEXT_PUBLIC_INSTAGRAM_URL=${NEXT_PUBLIC_INSTAGRAM_URL} \
+    NEXT_PUBLIC_LEGAL_NAME=${NEXT_PUBLIC_LEGAL_NAME} \
+    NEXT_PUBLIC_LEGAL_ADDRESS=${NEXT_PUBLIC_LEGAL_ADDRESS} \
+    NEXT_PUBLIC_FOUNDED_YEAR=${NEXT_PUBLIC_FOUNDED_YEAR} \
+    NEXT_PUBLIC_CHAT_URL=${NEXT_PUBLIC_CHAT_URL} \
+    NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN} \
+    SUPABASE_STORAGE_HOSTNAME=${SUPABASE_STORAGE_HOSTNAME} \
+    SUPABASE_STORAGE_PROTOCOL=${SUPABASE_STORAGE_PROTOCOL}
+
 # Собираем Next.js со standalone-выходом (см. next.config.ts: output: "standalone")
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN bun run build
 
 # --- Этап 3: Migrator (одноразовый init-контейнер) ---
 # Запускается перед web, применяет SQL миграции через psql и завершается.
-# Использует postgres:18-alpine чтобы был psql клиент (merge с origin/main,
-# Dependabot PR #4: 16 → 18; зеркало ECR сохранено).
-FROM public.ecr.aws/docker/library/postgres:18-alpine AS migrator
+# Использует postgres:17-alpine чтобы версия клиентских утилит совпадала с целевой БД PG17.
+FROM postgres:17-alpine AS migrator
 WORKDIR /migrations
 
 # Копируем все SQL миграции
@@ -67,7 +111,7 @@ RUN chmod +x /docker-entrypoint-initdb.d/01-apply-migrations.sh
 ENTRYPOINT ["sh", "/docker-entrypoint-initdb.d/01-apply-migrations.sh"]
 
 # --- Этап 4: Production runner ---
-FROM public.ecr.aws/docker/library/node:26-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 # Версия образа (commit SHA) — видна в /api/health
@@ -82,7 +126,7 @@ ENV HOSTNAME="0.0.0.0"
 # Создаём непривилегированного пользователя
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs && \
-    apk add --no-cache dumb-init openssl wget
+    apk add --no-cache dumb-init openssl wget postgresql17-client tar gzip
 
 # Standalone-сборка Next.js содержит только нужные node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
@@ -107,7 +151,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/jose ./node_modules/
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
 
 # Создаём директорию для upload/backup
-RUN mkdir -p /app/upload /app/backups && chown -R nextjs:nodejs /app/upload /app/backups
+RUN mkdir -p /app/upload /app/backups /app/storage /app/supabase-storage && chown -R nextjs:nodejs /app/upload /app/backups /app/storage
 
 USER nextjs
 

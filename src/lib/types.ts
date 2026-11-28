@@ -114,6 +114,8 @@ export interface OrderNegotiation {
   id: string;
   // Связи
   inquiryId?: string; // связь с заявкой из конструктора
+  referenceMedia?: { id: string; url: string; kind: "customer_reference" | "builder_preview" }[];
+  productionProductId?: string;
   customerId: string;
   customerName: string;
   customerAvatar?: string;

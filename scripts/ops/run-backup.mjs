@@ -12,7 +12,7 @@ export async function runBackupToFile() {
     return null;
   }
   console.log(
-    `[run-backup] ok: ${result.backupPath} (${result.tablesCount} tables, ${result.recordsExported} records)`
+    `[run-backup] ok: ${result.backupPath}; manifest=${result.manifestPath || "not-created"} (${result.tablesCount} tables, ${result.recordsExported} records)`
   );
   return result.backupPath;
 }

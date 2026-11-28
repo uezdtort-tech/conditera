@@ -1,43 +1,14 @@
-/**
- * PATCH /api/orders/[id] — обновление статуса заказа.
- *
- * Доступ:
- *   - CUSTOMER: только CANCELLED (отмена своего заказа)
- *   - CONFECTIONER: CONFIRMED, PREPARING, READY (статусы приготовления)
- *   - COURIER: IN_DELIVERY, DELIVERED
- *   - ADMIN: любой статус
- *
- * Body: { status: 'PENDING'|'CONFIRMED'|..., comment?: string }
- */
+/** PATCH /api/orders/[id] — совместимый API, делегирующий переходы lifecycle engine. */
 
 import { NextRequest, NextResponse } from "next/server";
+import { handleRouteError } from "@/lib/http-helpers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 // Единый auth-контракт: getUserFromRequest читает Bearer И cookie cd_session —
 // раньше getCurrentUser (GoTrue getSession) не работал в локальном runtime
 // (auth/v1 — 501-стаб) и отдавал 401 всем Bearer-клиентам.
 import { getUserFromRequest } from "@/lib/auth";
 import { forbiddenResponse, unauthorizedResponse } from "@/lib/supabase/auth";
-import { isCourierAssignedToOrder } from "@/lib/courier-assignments";
-import { emitEvent } from "@/lib/n8n";
-import { recordEvent } from "@/lib/ops/events";
-import { handleRouteError } from "@/lib/http-helpers";
-
-interface OrderStatusTransition {
-  from: string;
-  to: string;
-  roles: string[]; // роли которым разрешён переход
-}
-
-const STATUS_TRANSITIONS: OrderStatusTransition[] = [
-  { from: "PENDING", to: "CONFIRMED", roles: ["CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "PENDING", to: "CANCELLED", roles: ["CUSTOMER", "CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "CONFIRMED", to: "PREPARING", roles: ["CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "PREPARING", to: "READY", roles: ["CONFECTIONER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "READY", to: "IN_DELIVERY", roles: ["COURIER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "IN_DELIVERY", to: "DELIVERED", roles: ["COURIER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "DELIVERED", to: "COMPLETED", roles: ["CUSTOMER", "ADMIN", "SUPER_ADMIN"] },
-  { from: "DELIVERED", to: "REFUNDED", roles: ["ADMIN", "SUPER_ADMIN", "INSPECTOR"] },
-];
+import { applyOrderTransition, LifecycleError } from "@/lib/ops/lifecycle";
 
 export async function PATCH(
   request: NextRequest,
@@ -46,327 +17,90 @@ export async function PATCH(
   try {
     const { id: orderId } = await params;
     const user = await getUserFromRequest(request);
+    if (!user) return unauthorizedResponse();
 
-    if (!user) {
-      return unauthorizedResponse();
-    }
-
-    const body = await request.json();
-    const { status: newStatus, comment } = body as {
-      status: string;
-      comment?: string;
-    };
-
-    if (!newStatus) {
+    const body = await request.json().catch(() => null) as { status?: unknown; comment?: unknown } | null;
+    if (!body || typeof body.status !== "string") {
       return NextResponse.json({ error: "Status is required" }, { status: 400 });
     }
+    const newStatus = body.status;
+    const comment = typeof body.comment === "string" ? body.comment.slice(0, 2000) : null;
 
-    // Загружаем текущий заказ
+    // CANCELLED имеет отдельный финансовый сценарий: возврат, проверка эскроу
+    // и резерва выплаты. Не позволяем обходить его старым PATCH.
+    if (newStatus === "CANCELLED") {
+      return NextResponse.json(
+        { error: "Используйте POST /api/orders/[id]/cancel для безопасной отмены и возврата" },
+        { status: 409 }
+      );
+    }
+
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .select("id, user_id, confectioner_id, status, number")
       .eq("id", orderId)
-      .single();
+      .maybeSingle();
+    if (orderError) {
+      console.error("[orders/[id]] Load error:", orderError.message);
+      return NextResponse.json({ error: "Не удалось загрузить заказ" }, { status: 500 });
+    }
+    if (!order) return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
 
-    if (orderError || !order) {
-      return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
+    const roles = user.roles ?? [];
+    const isAdmin = roles.includes("ADMIN") || roles.includes("SUPER_ADMIN");
+    const isOwner = order.user_id === user.id;
+    const isAssignedConfectioner = order.confectioner_id === user.id && roles.includes("CONFECTIONER");
+
+    // Проверка субъектного доступа до вызова движка.
+    if (!isAdmin && !isOwner && !isAssignedConfectioner &&
+        !(roles.includes("COURIER") && (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED"))) {
+      return forbiddenResponse("Нет доступа к этому заказу");
     }
 
-    // Проверяем права на переход
-    const transition = STATUS_TRANSITIONS.find(
-      (t) => t.from === order.status && t.to === newStatus
-    );
-
-    if (!transition) {
-      return NextResponse.json(
-        { error: `Запрещённый переход: ${order.status} → ${newStatus}` },
-        { status: 400 }
-      );
-    }
-
-    // Проверяем роль пользователя
-    const userRoles = user.roles;
-    const hasRole = transition.roles.some((r) => userRoles.includes(r));
-    if (!hasRole) {
-      return forbiddenResponse(`Роль ${userRoles.join(", ")} не может менять статус ${order.status} → ${newStatus}`);
-    }
-
-    // Дополнительная проверка: CUSTOMER может менять только свой заказ.
-    // Сужение применяется ТОЛЬКО если CUSTOMER входит в роли ЭТОГО перехода:
-    // у каждого пользователя в токене есть базовая роль CUSTOMER (login), и
-    // раньше courier (roles [CUSTOMER, COURIER]) на переходе IN_DELIVERY →
-    // DELIVERED (roles COURIER/ADMIN) попадал под «Можно менять только свои
-    // заказы» раньше курьерского guard'а — завершение чужой доставки было
-    // невозможно для любого курьера.
-    if (
-      transition.roles.includes("CUSTOMER") &&
-      userRoles.includes("CUSTOMER") &&
-      !userRoles.includes("ADMIN")
-    ) {
-      if (order.user_id !== user.id) {
-        return forbiddenResponse("Можно менять только свои заказы");
-      }
-    }
-
-    // Дополнительная проверка: CONFECTIONER может менять только свои заказы
-    if (
-      transition.roles.includes("CONFECTIONER") &&
-      userRoles.includes("CONFECTIONER") &&
-      !userRoles.includes("ADMIN")
-    ) {
-      if (order.confectioner_id !== user.id) {
-        return forbiddenResponse("Можно менять только заказы, назначенные вам");
-      }
-    }
-
-    // P1.1 §15: COURIER меняет только назначенные ему доставки. Раньше любой
-    // курьер мог перевести ЛЮБОЙ заказ READY → IN_DELIVERY → DELIVERED.
-    // A-2: массив-запрос вместо .maybeSingle() — при аномалии из двух строк
-    // (order+courier) maybeSingle вернул бы ошибку, assignment=null и легитимный
-    // курьер получил бы 403. Ошибка БД — fail-closed 500 (не 403: «не назначен»
-    // было бы ложью при недоступности данных).
-    if (
-      userRoles.includes("COURIER") &&
-      !userRoles.includes("ADMIN") &&
-      !userRoles.includes("SUPER_ADMIN") &&
-      (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")
-    ) {
-      const { data: assignments, error: assignmentError } = await supabaseAdmin
+    // Роль COURIER требует назначения независимо от дополнительных ролей.
+    if (!isAdmin && roles.includes("COURIER") &&
+        (newStatus === "IN_DELIVERY" || newStatus === "DELIVERED")) {
+      const { data: assignment, error: assignmentError } = await supabaseAdmin
         .from("deliveries")
         .select("id")
         .eq("order_id", orderId)
         .eq("courier_id", user.id)
-        .limit(1);
+        .in("status", ["assigned", "picked_up", "on_the_way", "delivered"])
+        .maybeSingle();
       if (assignmentError) {
-        console.error(
-          "[orders/[id]] assignment check failed:",
-          assignmentError.message
-        );
-        return NextResponse.json(
-          { error: "Не удалось проверить назначение доставки" },
-          { status: 500 }
-        );
+        console.error("[orders/[id]] Courier assignment check failed:", assignmentError.message);
+        return NextResponse.json({ error: "Не удалось проверить назначение доставки" }, { status: 503 });
       }
-      if (!assignments || assignments.length === 0) {
-        return forbiddenResponse("Можно менять только назначенные вам доставки");
-      }
+      if (!assignment) return forbiddenResponse("Можно менять только назначенные вам доставки");
     }
 
-    // P1 (courier): синхронизация строки deliveries у перехода в DELIVERED.
-    // Первопричина рассинхрона: courier/assign ставил orders.status=IN_DELIVERY,
-    // но deliveries.status навсегда оставался 'assigned' — кабинет курьера
-    // (фильтр deliveries.status='delivered') и API (orders.status) показывали
-    // разные цифры, у доставки не заполнялись delivered_at/courier_earnings.
-    //
-    // A-2 (первопричина молчаливого пропуска синхронизации): раньше sync-чтение
-    // шло через .maybeSingle() без деструктуризации error — при двух активных
-    // доставках одного заказа PostgREST возвращал ошибку «multiple rows»,
-    // data=null, sync молча пропускался (доставки навсегда активны,
-    // courier_earnings=0) без единой записи в логе.
-    //
-    // Теперь инвариант «≤ 1 активной доставки на заказ» проверяется ДО
-    // необратимого обновления заказа:
-    //   • 0 активных — легально (самовывоз/заказы без доставки) → переход без sync;
-    //   • 1 активная — штатный sync после обновления (CAS по активным статусам;
-    //     повторный DELIVERED невозможен картой переходов; начисление НЕ
-    //     суммируется — courier_earnings присваивается, а не инкрементируется);
-    //   • >1 — аномалия данных: 409 с диагностикой ДО обновления заказа
-    //     (частично завершённый процесс не создаётся); уникальный индекс /
-    //     чистка данных — отдельным согласованием (не вслепую);
-    //   • ошибка чтения — fail-closed 500 до обновления заказа.
-    // Отчёт клиенту: поле deliverySync — честный статус синхронизации. Ошибка
-    // sync-записи не роняет уже выполненный переход (статус заказа = источник
-    // истины), но и не маскируется под успех.
-    let deliverySync: "ok" | "skipped_no_delivery" | "failed" = "skipped_no_delivery";
-    let activeDelivery: { id: string; status: string; cost: number | null } | null = null;
-    if (newStatus === "DELIVERED") {
-      const { data: activeRows, error: activeError } = await supabaseAdmin
-        .from("deliveries")
-        .select("id, status, cost")
-        .eq("order_id", orderId)
-        .in("status", ["assigned", "picked_up", "on_the_way"]);
-      if (activeError) {
-        console.error(
-          "[orders/[id]] active deliveries read failed:",
-          activeError.message
-        );
-        return NextResponse.json(
-          { error: "Не удалось проверить доставки заказа (синхронизация отменена)" },
-          { status: 500 }
-        );
-      }
-      const rows = (activeRows || []) as { id: string; status: string; cost: number | null }[];
-      if (rows.length > 1) {
-        console.error(
-          `[orders/[id]] DELIVERED blocked: ${rows.length} active deliveries for order ${orderId}:`,
-          JSON.stringify(rows.map((d) => d.id))
-        );
-        return NextResponse.json(
-          {
-            error: `Нарушен инвариант данных: у заказа ${rows.length} активных доставок (допустимо 0 или 1). Переход отменён — требуется исправление данных.`,
-          },
-          { status: 409 }
-        );
-      }
-      activeDelivery = rows[0] ?? null;
-    }
-
-    // Обновляем заказ
-    const updateData: Record<string, string> = { status: newStatus };
-    if (comment) updateData.notes = comment;
-
-    // Timestamps для конкретных статусов
-    if (newStatus === "CONFIRMED") updateData.confirmed_at = new Date().toISOString();
-    if (newStatus === "IN_DELIVERY") updateData.shipped_at = new Date().toISOString();
-    if (newStatus === "DELIVERED") updateData.delivered_at = new Date().toISOString();
-    if (newStatus === "COMPLETED") updateData.completed_at = new Date().toISOString();
-    if (newStatus === "CANCELLED") updateData.cancelled_at = new Date().toISOString();
-
-    // Z-v14 FIX: CAS по статусу (тот же паттерн, что в POST /accept) — UPDATE
-    // применяется только если статус не изменился с момента чтения. Раньше без
-    // этого два параллельных PATCH (или PATCH+accept) оба проходили переход
-    // PENDING→CONFIRMED: дубль в order_status_history, повторная запись
-    // confirmed_at и два события ORDER_CONFIRMED (проверено на ZV14-H1:
-    // history=2, notifRows=6). Проигравший гонку получает честный 409 без
-    // записи истории и без уведомления.
-    const { data: updatedRows, error: updateError } = await supabaseAdmin
-      .from("orders")
-      .update(updateData)
-      .eq("id", orderId)
-      .eq("status", order.status)
-      .select();
-
-    if (updateError) {
-      console.error("[orders/[id]] Update error:", updateError.message);
-      return NextResponse.json({ error: "Ошибка обновления" }, { status: 500 });
-    }
-
-    if (!updatedRows || updatedRows.length === 0) {
-      // CAS не совпал: статус уже изменён другим запросом. Ничего не пишем
-      // (история/уведомление — только у победителя) и честно сообщаем клиенту.
-      return NextResponse.json(
-        { error: "Статус заказа изменён другим запросом. Обновите данные и повторите действие." },
-        { status: 409 }
-      );
-    }
-    const updatedOrder = updatedRows[0];
-
-    // Этап 10 §A2: аудит-паритет с движком lifecycle (order_status_history
-    // писался только transition-роутами P0.5, PATCH-путь историю терял).
-    // FIX-TL: триггер orders_log_status (миграция 0006) удалён (0061) — он
-    // дублировал каждую запись строкой с changed_by=NULL (auth.uid()
-    // недоступен service-role/pg-пулу). Эта вставка — ЕДИНСТВЕННЫЙ писатель
-    // истории для PATCH-переходов, с атрибуцией актёра. supabase-js не умеет
-    // кросс-табличные транзакции: при ошибке журнала статус уже изменён —
-    // не откатываем (статус = источник истины), фиксируем в логах.
-    const { error: historyError } = await supabaseAdmin
-      .from("order_status_history")
-      .insert({
-        order_id: orderId,
-        status_from: order.status,
-        status_to: newStatus,
-        changed_by: user.id,
-        comment: comment ?? null,
+    try {
+      const result = await applyOrderTransition({
+        orderId,
+        to: newStatus,
+        actorId: user.id,
+        actorRoles: roles,
+        comment,
       });
-    if (historyError) {
-      console.error("[orders/[id]] history insert failed:", historyError.message);
-    }
-
-    // FIX-ZV13: уведомление покупателю о принятии заказа. Раньше ORDER_CONFIRMED
-    // отправлял только POST /accept, а реальный UI кондитера («Подтвердить»)
-    // ходит через PATCH — покупатель оставался без уведомления.
-    // Семантика та же, что в accept: ровно один раз после успешного серверного
-    // перехода PENDING → CONFIRMED; при ошибке API переход не уведомляет;
-    // сбой отправки не откатывает статус (fail-safe).
-    if (newStatus === "CONFIRMED" && order.status === "PENDING") {
-      try {
-        const { sendNotification } = await import("@/lib/notifications");
-        // Z-v14 FIX: dedupKey включает UNIQUE (user_id, channel,
-        // metadata->>'dedup_key') из миграции 0060 — уникальность события
-        // гарантируется БД, а не только условием order.status === "PENDING".
-        // Ключ на заказ: возврата CONFIRMED→PENDING в матрице переходов нет,
-        // повторный accept уже-подтверждённого заказа отклоняется до уведомления.
-        // Повтор события (23505) в sendNotification молча пропускается.
-        await sendNotification({
-          userId: order.user_id,
-          template: "ORDER_CONFIRMED",
-          vars: { orderNumber: order.number || orderId },
-          data: { type: "order_confirmed", orderId },
-          dedupKey: `order-confirmed:${orderId}`,
-        });
-      } catch (notifyError) {
-        console.error(
-          "[orders/[id]] ORDER_CONFIRMED notification failed:",
-          notifyError instanceof Error ? notifyError.message : notifyError
+      return NextResponse.json({
+        order: { id: result.orderId, number: result.orderNumber, status: result.to },
+        transition: { from: result.from, to: result.to },
+      });
+    } catch (err) {
+      if (err instanceof LifecycleError) {
+        const status =
+          err.code === "ORDER_NOT_FOUND" ? 404 :
+          err.code === "FORBIDDEN_ROLE" ? 403 :
+          err.code === "PAYMENT_NOT_CONFIRMED" || err.code === "QC_GATE_FAILED" || err.code === "READY_PHOTO_REQUIRED" ? 422 : 409;
+        return NextResponse.json(
+          { error: err.code, message: err.message, detail: err.detail },
+          { status }
         );
       }
+      throw err;
     }
-
-    // n8n: order.status_changed (fail-safe, после успешного обновления)
-    void emitEvent("order.status_changed", {
-      orderId,
-      from: order.status,
-      to: newStatus,
-    }).catch(() => {});
-
-    // ops: event log (append-only, fail-safe)
-    void recordEvent("order.status_changed", {
-      entityType: "order",
-      entityId: orderId,
-      actorId: user.id,
-      payload: { from: order.status, to: newStatus },
-    });
-
-    // P1 (courier) / A-2: sync-запись единственной активной доставки.
-    // Инвариант и диагностика — выше (до обновления заказа); здесь — только
-    // CAS-запись с честным отчётом deliverySync.
-    if (activeDelivery) {
-      try {
-        const nowIso = new Date().toISOString();
-        const { error: dErr } = await supabaseAdmin
-          .from("deliveries")
-          .update({
-            status: "delivered",
-            delivered_at: nowIso,
-            // курьер получает стоимость доставки (схема 0002: courier_earnings).
-            // A-3: канонический источник заработка — снимок на момент доставки;
-            // присваивание (не инкремент) — повторная обработка не удваивает сумму.
-            courier_earnings: Number(activeDelivery.cost || 0),
-            updated_at: nowIso,
-          })
-          .eq("id", activeDelivery.id)
-          .in("status", ["assigned", "picked_up", "on_the_way"]);
-        if (dErr) {
-          // A-2: ошибка деструктурирована и залогирована; статус перехода
-          // честно помечен failed (не маскируем под успешную синхронизацию).
-          deliverySync = "failed";
-          console.error("[orders/[id]] deliveries sync failed:", dErr.message);
-        } else {
-          deliverySync = "ok";
-        }
-      } catch (syncErr) {
-        deliverySync = "failed";
-        console.error(
-          "[orders/[id]] deliveries sync error:",
-          (syncErr as Error)?.message
-        );
-      }
-    }
-
-    return NextResponse.json({
-      order: updatedOrder,
-      transition: { from: order.status, to: newStatus },
-      // A-2: честный статус синхронизации доставки (ok / skipped_no_delivery /
-      // failed) — отсутствие ошибки в ответе больше не выдаёт пропущенный sync
-      // за успешный.
-      ...(newStatus === "DELIVERED" ? { deliverySync } : {}),
-    });
   } catch (error) {
-    return handleRouteError(error, {
-      route: "/api/orders/[id]",
-      component: "orders",
-      requestId: request.headers.get("x-request-id") ?? undefined,
-    });
+    return handleRouteError(error, { route: "/api/orders/[id]", component: "orders" });
   }
 }
 
@@ -383,51 +117,97 @@ export async function GET(
       return unauthorizedResponse();
     }
 
-    const { data: order, error } = await supabaseAdmin
+    // Загружаем строку заказа отдельно от one-to-many связей.
+    // Встроенный select с items/payment/delivery скрывал ошибки отношений
+    // как 404 и давал разный результат на чистых PG15/PG17 схемах.
+    const { data: orderRow, error: orderError } = await supabaseAdmin
       .from("orders")
-      .select(`
-        *,
-        items:order_items(*),
-        payment:payments(*),
-        delivery:deliveries(*)
-      `)
+      .select("*")
       .eq("id", orderId)
-      .single();
+      .maybeSingle();
 
-    if (error || !order) {
+    if (orderError) {
+      console.error("[orders/[id]] Order lookup failed:", orderError.message);
+      return NextResponse.json({ error: "Не удалось загрузить заказ" }, { status: 503 });
+    }
+    if (!orderRow) {
       return NextResponse.json({ error: "Заказ не найден" }, { status: 404 });
     }
 
+    const order = orderRow;
     // Проверяем права доступа
     const isOwner = order.user_id === user.id;
     const isConfectioner = order.confectioner_id === user.id;
-    // P1 (courier-scope): COURIER удалён из привилегированного списка — сама
-    // по себе роль курьера не даёт права читать чужие заказы (раньше любой
-    // курьер мог получить полные детали любого заказа: items, payment,
-    // delivery). Курьер допускается только к заказу, на который назначен.
-    // Канонический маркер назначения — deliveries.courier_id (orders.courier_id
-    // в реальной схеме БД не существует; deliveries приходят встроенными как
-    // order.delivery[]). Сравнение — по серверным данным, не по payload.
-    const isPrivileged = user.roles.some((r: string) =>
-      ["ADMIN", "SUPER_ADMIN", "SUPPORT"].includes(r)
+    const isAdmin = user.roles.some((r: string) =>
+      ["ADMIN", "SUPER_ADMIN"].includes(r)
     );
-    const isCourierAssigned =
-      user.roles.includes("COURIER") && isCourierAssignedToOrder(order, user.id);
 
-    if (!isOwner && !isConfectioner && !isPrivileged && !isCourierAssigned) {
-      return forbiddenResponse(
-        user.roles.includes("COURIER")
-          ? "Курьер не назначен на этот заказ"
-          : "Нет доступа к этому заказу"
-      );
+    // SUPPORT и COURIER не получают глобальный доступ ко всем заказам.
+    // Поддержка видит заказ только при назначенном тикете по этому заказу;
+    // курьер — только при существующем назначении доставки.
+    let isAssignedSupport = false;
+    if (!isAdmin && !isOwner && !isConfectioner && user.roles.includes("SUPPORT")) {
+      const { data: ticket, error: ticketError } = await supabaseAdmin
+        .from("support_tickets")
+        .select("id")
+        .eq("order_id", orderId)
+        .eq("assigned_to", user.id)
+        .limit(1)
+        .maybeSingle();
+      if (ticketError) {
+        console.error("[orders/[id]] Support scope check failed:", ticketError.message);
+      }
+      isAssignedSupport = Boolean(ticket);
     }
 
-    return NextResponse.json({ order });
-  } catch (error) {
-    return handleRouteError(error, {
-      route: "/api/orders/[id]",
-      component: "orders",
-      requestId: request.headers.get("x-request-id") ?? undefined,
+    let isAssignedCourier = false;
+    if (!isAdmin && !isOwner && !isConfectioner && !isAssignedSupport && user.roles.includes("COURIER")) {
+      const { data: assignment, error: assignmentError } = await supabaseAdmin
+        .from("deliveries")
+        .select("id")
+        .eq("order_id", orderId)
+        .eq("courier_id", user.id)
+        .in("status", ["assigned", "picked_up", "on_the_way", "delivered"])
+        .limit(1)
+        .maybeSingle();
+      if (assignmentError) {
+        console.error("[orders/[id]] Courier scope check failed:", assignmentError.message);
+      }
+      isAssignedCourier = Boolean(assignment);
+    }
+
+    if (!isOwner && !isConfectioner && !isAdmin && !isAssignedSupport && !isAssignedCourier) {
+      return forbiddenResponse("Нет доступа к этому заказу");
+    }
+
+    // Связанные коллекции читаются отдельно: это исключает зависимость
+    // от автоматического обнаружения FK и сохраняет полный контракт карточки.
+    const [itemsResult, paymentsResult, deliveriesResult] = await Promise.all([
+      supabaseAdmin.from("order_items").select("*").eq("order_id", orderId),
+      supabaseAdmin.from("payments").select("*").eq("order_id", orderId),
+      supabaseAdmin.from("deliveries").select("*").eq("order_id", orderId),
+    ]);
+
+    for (const [relation, result] of [
+      ["order_items", itemsResult],
+      ["payments", paymentsResult],
+      ["deliveries", deliveriesResult],
+    ] as const) {
+      if (result.error) {
+        console.error(`[orders/[id]] ${relation} lookup failed:`, result.error.message);
+        return NextResponse.json({ error: "Не удалось загрузить состав заказа" }, { status: 503 });
+      }
+    }
+
+    return NextResponse.json({
+      order: {
+        ...order,
+        items: itemsResult.data ?? [],
+        payment: paymentsResult.data ?? [],
+        delivery: deliveriesResult.data ?? [],
+      },
     });
+  } catch (error) {
+    return handleRouteError(error, { route: "/api/orders/[id]", component: "orders" });
   }
 }

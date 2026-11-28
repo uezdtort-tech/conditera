@@ -13,23 +13,44 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { resolveSupabaseServerUrl, SUPABASE_COOKIE_NAME } from "./url";
+import { isPlaceholderSupabaseKey } from "./key-validation";
 
-const supabaseUrl = resolveSupabaseServerUrl();
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function getServerSupabaseConfig(): { url: string; anonKey: string } {
+  const url =
+    process.env.SUPABASE_INTERNAL_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+  const isProduction = process.env.NODE_ENV === "production";
+  const invalid = !url || isPlaceholderSupabaseKey(anonKey, !isProduction);
 
-if (!supabaseAnonKey) {
-  console.warn(
-    "[supabase/server] NEXT_PUBLIC_SUPABASE_ANON_KEY not set. " +
-    "Auth will not work."
-  );
+  if (invalid && isProduction && !isBuildPhase) {
+    throw new Error(
+      "[supabase/server] Production requires a real Supabase URL and " +
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY. Refusing to create an unauthenticated client."
+    );
+  }
+
+  if (invalid) {
+    console.warn(
+      "[supabase/server] Supabase URL/anon key is missing or a placeholder; " +
+      "the client is not suitable for authenticated requests."
+    );
+  }
+
+  return {
+    url: url || resolveSupabaseServerUrl(),
+    anonKey: invalid ? "build-placeholder-anon-key" : anonKey!,
+  };
 }
 
 export async function createSupabaseServerClient() {
+  const { url, anonKey } = getServerSupabaseConfig();
   const cookieStore = await cookies();
 
   return createServerClient(
-    supabaseUrl,
-    supabaseAnonKey || "stub-anon-key",
+    url,
+    anonKey,
     {
       cookieOptions: { name: SUPABASE_COOKIE_NAME },
       cookies: {
@@ -51,12 +72,11 @@ export async function createSupabaseServerClient() {
   );
 }
 
-// Singleton для использования в server components
-let cachedClient: Awaited<ReturnType<typeof createSupabaseServerClient>> | null = null;
-
+/**
+ * Не кэшируем SSR-клиент между запросами: он замыкает cookieStore конкретного
+ * запроса. Глобальный singleton способен повторно использовать cookies
+ * первого пользователя в другом запросе.
+ */
 export async function getSupabaseServer(): Promise<Awaited<ReturnType<typeof createSupabaseServerClient>>> {
-  if (!cachedClient) {
-    cachedClient = await createSupabaseServerClient();
-  }
-  return cachedClient;
+  return createSupabaseServerClient();
 }

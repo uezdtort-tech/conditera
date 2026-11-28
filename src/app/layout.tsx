@@ -7,10 +7,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { QueryProvider } from "@/components/query-provider";
 import { SupabaseAuthSync } from "@/components/layout/supabase-auth-sync";
-import { BrandThemeApplier } from "@/components/cms/brand-theme-applier";
 import { PushNotificationManager } from "@/components/pwa/push-notification-manager";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
-
 // NEW v2.0 — глобальный AI-помощник (FAB внизу справа для авторизованных)
 import { AIAssistantWidget } from "@/components/ai/ai-assistant-widget";
 // П.24: Schema.org — Organization и WebSite на каждой странице
@@ -59,7 +57,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   manifest: "/manifest.webmanifest",
-  title: `${siteConfig.name} — от торта до сладкого стола`,
+  title: `${siteConfig.name} — маркетплейс кондитерских изделий`,
   description: siteConfig.description,
   keywords: [
     siteConfig.name,
@@ -107,10 +105,6 @@ export default function RootLayout({
             чтобы Google показывал лого, контакты и sitelinks search box в выдаче */}
         <JsonLd data={[organizationJsonLd(), websiteJsonLd()]} />
 
-        {/* Z-brand: применение бренд-настроек (акцент/лого) из опубликованного
-            CMS-документа на всех маршрутах. Ничего не рендерит. */}
-        <BrandThemeApplier />
-
         {/* Яндекс Метрика — счётчик 111432662 */}
         {process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID && (
           <>
@@ -121,7 +115,7 @@ export default function RootLayout({
                     m[i].l=1*new Date();
                     for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
                     k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
-                })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=${process.env.NEXT_PUBLIC_YANDEX_METRIKA}', 'ym');
+                })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=${process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID}', 'ym');
 
                 ym(${process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID}, 'init', {
                   ssr: true,
@@ -156,14 +150,6 @@ export default function RootLayout({
           <SonnerToaster position="top-right" richColors />
           {/* NEW v2.0 — глобальный AI-помощник для авторизованных пользователей */}
           <AIAssistantWidget />
-          {/* Z-2026-11-16 (auth-recovery): сверка сессии с сервером на КАЖДОЙ
-              странице, не только /dashboard. Раньше persist-пользователь zustand
-              («conditera-storage») выживал после logout в другой вкладке,
-              server-side блокировки или истечения JWT — шапка показывала
-              аватар без сессии, а первая мутация падала 401.
-              SupabaseAuthSync на boot вызывает /api/auth/session и
-              setSupabaseUser(null) при отсутствии сессии. */}
-          <SupabaseAuthSync />
         </QueryProvider>
       </body>
     </html>

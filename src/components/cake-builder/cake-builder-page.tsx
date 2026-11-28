@@ -16,8 +16,6 @@
  */
 
 import { useAppStore } from "@/lib/store";
-import { useCakeBuilderHistory } from "@/lib/use-cake-builder-history";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,8 +30,6 @@ import {
   DialogHeader,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as DatePickerCalendar } from "@/components/ui/calendar";
 import { FillingSlicePreview } from "@/components/cake-slice/cake-slice-visualizer";
 import {
   CAKE_BUILDER_OPTIONS,
@@ -56,16 +52,11 @@ import {
   Percent,
   Eye,
   Info,
-  Undo2,
-  Redo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
-import { format, parseISO } from "date-fns";
-import { ru } from "date-fns/locale";
 import type { CakeBuilderState } from "@/lib/types";
 import { csrfFetch } from "@/lib/api-client";
-import { useSubmitInquiry } from "@/lib/use-inquiry-submit"; // ZV33-4 §B12: реальный поток inquiries/negotiations
 
 // Тип для начинки из БД (40+ начинок, добавляются кондитерами, модерация админом)
 interface DbFilling {
@@ -131,8 +122,6 @@ export function CakeBuilderPage() {
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const setAuthModalOpen = useAppStore((s) => s.setAuthModalOpen);
   const confectioners = useAppStore((s) => s.confectioners);
-  // Undo/redo: страница смонтирована — хоткеи активны
-  const { canUndo, canRedo, undo, redo } = useCakeBuilderHistory(true);
 
   const [submitted, setSubmitted] = useState(false);
   const [selectedConfectioners, setSelectedConfectioners] = useState<string[]>([]);
@@ -141,14 +130,14 @@ export function CakeBuilderPage() {
   const [discountComment, setDiscountComment] = useState("");
   const [detailModal, setDetailModal] = useState<OptionDetail | null>(null);
   const [showConditionsModal, setShowConditionsModal] = useState(false);
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [builderPreviewFile, setBuilderPreviewFile] = useState<File | null>(null);
+  const [isSubmittingQuote, setIsSubmittingQuote] = useState(false);
 
   // Начинки загружаются из БД (45+ начинок, добавляются кондитерами)
   const [dbFillings, setDbFillings] = useState<DbFilling[]>([]);
   const [fillingsLoading, setFillingsLoading] = useState(false);
   const [activeFlavorGroup, setActiveFlavorGroup] = useState<string>("all");
-  // ZV33-4 §B12: мутация создания inquiry (+negotiations) из черновика
-  const submitInquiry = useSubmitInquiry();
 
   // Загрузка начинок из API при монтировании
   useEffect(() => {
@@ -309,111 +298,85 @@ export function CakeBuilderPage() {
         discount_requested: requestDiscount,
         discount_percent: requestDiscount ? discountPercent : 0,
         discount_comment: requestDiscount ? discountComment : undefined,
-        estimated_price: regionalPrice + deliveryCost,
-        estimated_delivery_cost: deliveryCost,
+        estimated_price: Math.round((regionalPrice + deliveryCost) * 100),
+        estimated_delivery_cost: Math.round(deliveryCost * 100),
         confectioner_ids: selectedConfectioners,
+        project_spec: {
+          productType: cakeBuilder.productType,
+          eventType: cakeBuilder.eventType,
+          base: cakeBuilder.base,
+          filling: cakeBuilder.filling,
+          coating: cakeBuilder.coating,
+          decorations: cakeBuilder.decorations || [],
+          dietary: cakeBuilder.dietary || [],
+          servings: cakeBuilder.servings || productTypeMeta?.defaultServings || 8,
+          quantity: cakeBuilder.quantity,
+          tiers: cakeBuilder.tiers || 1,
+          shape: cakeBuilder.shape,
+          inscription: cakeBuilder.inscription,
+          comment: cakeBuilder.comment,
+          city: cakeBuilder.city,
+          deliveryDate: cakeBuilder.deliveryDate,
+          deliveryType: cakeBuilder.deliveryType || "delivery",
+          address: cakeBuilder.address,
+          estimatedPriceKopecks: Math.round((regionalPrice + deliveryCost) * 100),
+          deliveryCostKopecks: Math.round(deliveryCost * 100),
+          referenceMediaExpected: referenceFiles.length,
+          builderPreviewExpected: Boolean(builderPreviewFile),
+        },
       };
 
-      // ZV33-4 §B12: ПЕРВИЧНЫЙ путь — реальный поток inquiries/negotiations
-      // (создаёт черновик + POST /api/inquiries; переговоры попадают во вкладку
-      // «Предложения кондитеров» покупателя и «Заявки из конструктора»
-      // кондитера). При недоступности (нет Supabase-сессии в песочнице и т.п.)
-      // — откат на legacy /api/quotes (quote_requests) ниже.
-      try {
-        await submitInquiry.mutateAsync({
-          snapshot: {
-            event_type: cakeBuilder.eventType || null,
-            base: cakeBuilder.base || null,
-            filling: cakeBuilder.filling || null,
-            coating: cakeBuilder.coating || null,
-            decorations: cakeBuilder.decorations || [],
-            dietary: cakeBuilder.dietary || [],
-            servings: cakeBuilder.servings || productTypeMeta?.defaultServings || 8,
-            city: cakeBuilder.city || "",
-            delivery_date: cakeBuilder.deliveryDate || null,
-            delivery_type: cakeBuilder.deliveryType || "delivery",
-            inscription: cakeBuilder.inscription || null,
-            comment: cakeBuilder.comment || null,
-          },
-          confectionerIds: selectedConfectioners,
-          estimatedPriceKopecks: Math.round((regionalPrice + deliveryCost) * 100),
-        });
-        setSubmitted(true);
-        toast.success(
-          `Запрос отправлен ${selectedConfectioners.length} кондитер(ам)!`,
-          {
-            description:
-              "Предложения появятся во вкладке «Предложения кондитеров» в личном кабинете.",
-          }
-        );
-        return;
-      } catch {
-        // Фолбэк: legacy-контур quote_requests (ниже)
-      }
-
+      setIsSubmittingQuote(true);
       try {
         const res = await csrfFetch("/api/quotes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(quoteBody),
         });
-        if (res.ok) {
-          const data = await res.json();
-          setSubmitted(true);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.quoteRequest?.id) {
+          toast.error(data.message || data.error || "Не удалось создать запрос кондитерам");
+          return;
+        }
+
+        // Вложения загружаются только после создания quote_request и связываются
+        // с ним в приватном Storage. Ошибка загрузки не превращает запрос в mock.
+        let uploadFailures = 0;
+        const attachments = [
+          ...referenceFiles.map(file => ({ file, kind: "customer_reference" as const })),
+          ...(builderPreviewFile ? [{ file: builderPreviewFile, kind: "builder_preview" as const }] : []),
+        ];
+        for (const attachment of attachments) {
+          const form = new FormData();
+          form.append("file", attachment.file);
+          form.append("kind", attachment.kind);
+          const upload = await csrfFetch(`/api/quotes/${data.quoteRequest.id}/media`, {
+            method: "POST",
+            body: form,
+          });
+          if (!upload.ok) uploadFailures += 1;
+        }
+
+        setSubmitted(true);
+        if (uploadFailures > 0) {
+          toast.warning("Запрос создан, но не все изображения загрузились", {
+            description: `Не удалось прикрепить файлов: ${uploadFailures}. Откройте запрос в личном кабинете и повторите загрузку.`,
+          });
+        } else {
           toast.success(
             `Запрос отправлен ${selectedConfectioners.length} кондитер(ам)!`,
             {
               description: requestDiscount && discountPercent > 0
-                ? `Запрошена скидка ${discountPercent}%. Ответы придут в течение 48 часов. Согласование — во вкладке «Предложения кондитеров».`
-                : "Кондитеры предложат цену в течение 48 часов. Согласование — во вкладке «Предложения кондитеров».",
+                ? `Запрошена скидка ${discountPercent}%. Ответы придут в течение 48 часов.`
+                : "Кондитеры предложат цену в течение 48 часов. Согласование — в личном кабинете.",
             }
           );
-        } else {
-          // Fallback: сохранить в store если API недоступен
-          const newNegotiations = selectedConfectioners.map((confId) => {
-            const conf = confectioners.find((c) => c.id === confId);
-            return {
-              id: `neg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-              inquiryId: `inq_${Date.now()}`,
-              customerId: "u_new",
-              customerName: "Покупатель",
-              confectionerId: confId,
-              confectionerName: conf?.businessName || "Кондитер",
-              confectionerAvatar: conf?.avatar,
-              originalRequest: {
-                eventType: cakeBuilder.eventType || "",
-                base: cakeBuilder.base || "",
-                filling: cakeBuilder.filling || "",
-                coating: cakeBuilder.coating || "",
-                decorations: cakeBuilder.decorations || [],
-                servings: cakeBuilder.servings || productTypeMeta?.defaultServings || 8,
-                city: cakeBuilder.city || "",
-                deliveryDate: cakeBuilder.deliveryDate || "",
-                deliveryType: cakeBuilder.deliveryType || "delivery",
-                comment: cakeBuilder.comment || "",
-                estimatedPrice: regionalPrice + deliveryCost,
-              },
-              discountRequested: requestDiscount,
-              discountPercent: requestDiscount ? discountPercent : 0,
-              discountComment: requestDiscount ? discountComment : "",
-              quotedItems: [],
-              quotedTotal: 0,
-              quotedDeliveryCost: 0,
-              quotedPrepTime: "",
-              status: "pending_confectioner" as const,
-              revisions: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-            };
-          });
-          useAppStore.setState({ negotiations: [...useAppStore.getState().negotiations, ...newNegotiations] });
-          setSubmitted(true);
-          toast.success(`Запрос отправлен ${selectedConfectioners.length} кондитер(ам)!`);
         }
       } catch (err) {
         console.error("[cake-builder] quote submit error:", err);
-        toast.error("Ошибка отправки запроса. Попробуйте ещё раз.");
+        toast.error("Ошибка отправки запроса. Проверьте соединение и попробуйте ещё раз.");
+      } finally {
+        setIsSubmittingQuote(false);
       }
     }
   };
@@ -460,12 +423,6 @@ export function CakeBuilderPage() {
     toast.success("Торт добавлен в корзину", {
       description: "Состав и цена видны в корзине — оформление в один шаг",
     });
-    // ZV33-8d FIX C: view-router store живёт только на '/' — из /dashboard и
-    // прочих URL navigate("checkout") был no-op (паттерн cart-drawer handleCheckout).
-    if (typeof window !== "undefined" && window.location.pathname !== "/") {
-      window.location.assign("/checkout");
-      return;
-    }
     navigate("checkout");
   };
 
@@ -473,13 +430,22 @@ export function CakeBuilderPage() {
     resetCakeBuilder();
     setSubmitted(false);
     setSelectedConfectioners([]);
+    setReferenceFiles([]);
+    setBuilderPreviewFile(null);
+    setIsSubmittingQuote(false);
     navigate("home");
   };
 
   const toggleDecoration = (id: string) => {
     const decorations = cakeBuilder.decorations.includes(id)
       ? cakeBuilder.decorations.filter((d) => d !== id)
-      : [...cakeBuilder.decorations, id];
+      : cakeBuilder.decorations.length >= 5
+        ? cakeBuilder.decorations
+        : [...cakeBuilder.decorations, id];
+    if (!cakeBuilder.decorations.includes(id) && cakeBuilder.decorations.length >= 5) {
+      toast.error("Можно выбрать не более пяти элементов декора");
+      return;
+    }
     updateCakeBuilder({ decorations });
   };
 
@@ -578,28 +544,6 @@ export function CakeBuilderPage() {
                 </p>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={undo}
-              disabled={!canUndo}
-              aria-label="Отменить последнее действие (Ctrl+Z)"
-              title="Отменить (Ctrl+Z)"
-            >
-              <Undo2 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={redo}
-              disabled={!canRedo}
-              aria-label="Повторить действие (Ctrl+Y)"
-              title="Повторить (Ctrl+Y)"
-            >
-              <Redo2 className="h-4 w-4" />
-            </Button>
           </div>
           <Button variant="ghost" size="sm" onClick={handleClose}>
             <X className="h-4 w-4" />
@@ -1065,45 +1009,12 @@ export function CakeBuilderPage() {
                         <Calendar className="h-3.5 w-3.5 inline mr-1" />
                         Дата доставки
                       </Label>
-                      {/* Кастомный календарь в Popover — реальный DOM вместо нативного
-                          popup браузера: клики по дням не проходят сквозь к шапке/навигации
-                          и больше не уводят пользователя из конструктора. */}
-                      <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            aria-label="Выбрать дату доставки"
-                            className={cn(
-                              "w-full justify-start font-normal h-9",
-                              !cakeBuilder.deliveryDate && "text-muted-foreground"
-                            )}
-                          >
-                            <Calendar className="h-3.5 w-3.5 mr-1" />
-                            {cakeBuilder.deliveryDate
-                              ? format(parseISO(cakeBuilder.deliveryDate), "d MMMM yyyy", { locale: ru })
-                              : "Выберите дату"}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <DatePickerCalendar
-                            mode="single"
-                            locale={ru}
-                            defaultMonth={
-                              cakeBuilder.deliveryDate ? parseISO(cakeBuilder.deliveryDate) : new Date()
-                            }
-                            selected={
-                              cakeBuilder.deliveryDate ? parseISO(cakeBuilder.deliveryDate) : undefined
-                            }
-                            onSelect={(day) => {
-                              if (day) {
-                                updateCakeBuilder({ deliveryDate: format(day, "yyyy-MM-dd") });
-                              }
-                              setDatePickerOpen(false);
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
+                      <Input
+                        type="date"
+                        value={cakeBuilder.deliveryDate || ""}
+                        onChange={(e) => updateCakeBuilder({ deliveryDate: e.target.value })}
+                        placeholder="Выберите дату"
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -1189,6 +1100,63 @@ export function CakeBuilderPage() {
                         </Badge>
                       )}
                     </Button>
+                  </div>
+
+                  {/* Визуальные пожелания к проекту */}
+                  <div className="space-y-3 rounded-lg border p-3">
+                    <div>
+                      <Label className="font-semibold">Фото-пожелания покупателя</Label>
+                      <p className="text-xs text-muted-foreground mt-1">До 10 изображений JPEG, PNG или WebP; не более 8 МБ каждое.</p>
+                      <Input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        multiple
+                        onChange={(event) => {
+                          const files = Array.from(event.target.files || []);
+                          if (files.length + (builderPreviewFile ? 1 : 0) > 10) {
+                            toast.error("Всего к запросу можно прикрепить не более 10 изображений");
+                            event.target.value = "";
+                            setReferenceFiles([]);
+                            return;
+                          }
+                          if (files.some(file => file.size > 8 * 1024 * 1024)) {
+                            toast.error("Размер каждого изображения — не более 8 МБ");
+                            event.target.value = "";
+                            return;
+                          }
+                          setReferenceFiles(files);
+                        }}
+                      />
+                      {referenceFiles.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">Выбрано фото: {referenceFiles.length}</p>
+                      )}
+                    </div>
+                    <div>
+                      <Label className="font-semibold">Макет из конструктора (необязательно)</Label>
+                      <p className="text-xs text-muted-foreground mt-1">Прикрепите сохранённый рендер/макет торта, если он у вас есть.</p>
+                      <Input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] || null;
+                          if (file && referenceFiles.length + 1 > 10) {
+                            toast.error("Всего к запросу можно прикрепить не более 10 изображений");
+                            event.target.value = "";
+                            setBuilderPreviewFile(null);
+                            return;
+                          }
+                          if (file && file.size > 8 * 1024 * 1024) {
+                            toast.error("Размер макета — не более 8 МБ");
+                            event.target.value = "";
+                            setBuilderPreviewFile(null);
+                            return;
+                          }
+                          setBuilderPreviewFile(file);
+                        }}
+                      />
+                      {builderPreviewFile && <p className="text-xs text-muted-foreground mt-1">{builderPreviewFile.name}</p>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Параметры конструктора, включая до пяти элементов декора, автоматически сохраняются в проекте запроса.</p>
                   </div>
 
                   {/* Confectioner list */}
@@ -1358,11 +1326,11 @@ export function CakeBuilderPage() {
                 : "Выберите кондитеров"
               : `Шаг ${step + 1} из 9`}
           </div>
-          <Button onClick={handleNext} disabled={!canProceed()}>
+          <Button onClick={handleNext} disabled={!canProceed() || isSubmittingQuote}>
             {step === 8 ? (
               <>
                 <Sparkles className="h-4 w-4 mr-1" />
-                Отправить запрос{selectedConfectioners.length > 0 ? ` (${selectedConfectioners.length})` : ""}
+                {isSubmittingQuote ? "Отправляем..." : `Отправить запрос${selectedConfectioners.length > 0 ? ` (${selectedConfectioners.length})` : ""}`}
               </>
             ) : (
               <>

@@ -65,11 +65,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const result: FullCleanupResult = await runFullCleanup();
 
-    // Обновить лог как успешный
+    const failedOperations = result.results.filter((operation) => !operation.success);
+    const succeeded = failedOperations.length === 0;
+    const failureSummary = failedOperations
+      .map((operation) => `${operation.type}: ${operation.errorMessage || "failed"}`)
+      .join("; ");
+
+    // A partial cleanup must never be recorded or returned as a success.
     const { error: updateErr } = await supabaseAdmin
       .from("maintenance_logs")
       .update({
-        status: "success",
+        status: succeeded ? "success" : "failed",
         finishedAt: new Date().toISOString(),
         durationMs: result.totalDurationMs,
         recordsAffected: result.totalDeleted,
@@ -83,6 +89,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             errorMessage: r.errorMessage,
           })),
         },
+        errorMessage: failureSummary || null,
       })
       .eq("id", log.id);
 
@@ -91,7 +98,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({
-      success: true,
+      success: succeeded,
       totalDeleted: result.totalDeleted,
       durationMs: result.totalDurationMs,
       operations: result.results.map((r) => ({
@@ -101,8 +108,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         durationMs: r.durationMs,
         errorMessage: r.errorMessage,
       })),
+      error: failureSummary || undefined,
       logId: log.id,
-    });
+    }, { status: succeeded ? 200 : 500 });
   } catch (error: any) {
     // Обновить лог как failed
     await supabaseAdmin
@@ -110,7 +118,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .update({
         status: "failed",
         finishedAt: new Date().toISOString(),
-        error_message: error?.message ?? "Unknown error",
+        errorMessage: error?.message ?? "Unknown error",
       })
       .eq("id", log.id);
 

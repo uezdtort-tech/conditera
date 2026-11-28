@@ -47,7 +47,7 @@ jobs:
             -f docker-compose.supabase.yml \
             -f docker-compose.pg17-migration.yml \
             --profile pg17-migration config --quiet
-      - name: Проверить изоляцию целевого кластера и сохранность действующего PG15
+      - name: Проверить PG17 runtime и изоляцию отдельного миграционного кластера
         run: |
           docker compose \
             -f docker-compose.supabase.yml \
@@ -77,13 +77,14 @@ jobs:
           storage_named_volumes = [volume["source"] for volume in storage.get("volumes", []) if volume.get("type") == "volume"]
           current_named_volumes = [volume["source"] for volume in current.get("volumes", []) if volume.get("type") == "volume"]
           assert "supabase_pg17_migration_data" in target_named_volumes, target_named_volumes
-          assert current["image"] == "supabase/postgres:15.6.1.141", current.get("image")
-          assert "supabase_db_data" in current_named_volumes, current_named_volumes
+          assert current["image"] == "supabase/postgres:17.12.0.001", current.get("image")
+          assert "supabase_db_data_v17" in current_named_volumes, current_named_volumes
+          assert "supabase_db_data" not in current_named_volumes, current_named_volumes
           assert set(current_named_volumes).isdisjoint(target_named_volumes), (current_named_volumes, target_named_volumes)
           assert config["volumes"]["supabase_pg17_migration_data"]["name"] == "conditera_supabase_pg17_migration_data"
           assert "supabase_pg17_migration_storage_data" in storage_named_volumes, storage_named_volumes
           assert config["volumes"]["supabase_pg17_migration_storage_data"]["name"] == "conditera_supabase_pg17_migration_storage_data"
-          print("OK: PG17 target is profile-isolated, has a separate volume, and current PG15 remains unchanged.")
+          print("OK: PG17 target is profile-isolated, has a separate volume, and legacy PG15 volume remains unmounted and PG17 runtime uses an isolated volume.")
           PY
       - name: Запустить PG17 и Supabase Storage, затем применить отложенную миграцию
         run: |
@@ -148,6 +149,23 @@ jobs:
           fi
           REALTIME_MIGRATIONS=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc "SELECT to_regclass('_realtime.schema_migrations') IS NOT NULL;")
           test "$REALTIME_MIGRATIONS" = "t"
+          # /status can be healthy before Storage finishes its database bootstrap.
+          # Do not run migrations that write storage.buckets until the schema exists.
+          STORAGE_SCHEMA_READY=0
+          for attempt in $(seq 1 90); do
+            STORAGE_SCHEMA=$(docker compose -f docker-compose.supabase.yml -f docker-compose.pg17-migration.yml --profile pg17-migration exec -T supabase-db-pg17-migration psql -X -v ON_ERROR_STOP=1 -U supabase_admin -d supabase -Atc "SELECT to_regclass('storage.buckets') IS NOT NULL;" 2>/dev/null || echo f)
+            if [ "$STORAGE_SCHEMA" = "t" ]; then
+              STORAGE_SCHEMA_READY=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$STORAGE_SCHEMA_READY" != "1" ]; then
+            echo "Supabase Storage API is healthy but storage.buckets was not initialized."
+            docker logs conditera-supabase-storage-pg17-migration || true
+            docker logs conditera-supabase-rest-pg17-migration || true
+            exit 1
+          fi
           if ! $COMPOSE up -d supabase-app-migrator-pg17-migration; then
             docker logs conditera-supabase-app-migrator-pg17-migration || true
             exit 1
@@ -265,7 +283,7 @@ jobs:
           done
           test "$READY" = "1"
           docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-setup.sql
-          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < supabase/migrations/0064_product_slices_rls.sql
+          docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < supabase/migrations/0064a_product_slices_rls.sql
           docker exec -i product-slices-rls-pg psql -v ON_ERROR_STOP=1 -U postgres -d conditera < scripts/tests/product-slices-rls-regression.sql
       - name: Очистить только временный кластер GitHub Actions
         if: always()

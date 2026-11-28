@@ -1,21 +1,21 @@
 # ===== Docker Compose для dev-режима =====
 # Запуск: docker-compose -f docker-compose.dev.yml up -d
 #
-# Включает: PostgreSQL 18 + Redis + Meilisearch + Mailpit + n8n
+# Включает: PostgreSQL 17 + Redis + Meilisearch + Mailpit + n8n
 # Next.js запускается отдельно через `npm run dev:local`
 
 version: "3.8"
 
 services:
-  # ===== PostgreSQL 17 (dev) =====
-  # ЦЕЛЕВАЯ ВЕРСИЯ: PG17 (единая с Supabase-стеком, CI и db:setup — см.
-  # scripts/verify/pg-version-gate.mjs). Volume от PG18 (*_v18) несовместим
-  # с PG17 — при "PG_VERSION mismatch" удалите volume:
+  # ===== PostgreSQL 18 (dev) =====
+  # ВАЖНО: postgres:18-alpine — актуальный major release.
+  # Старый volume uyezdny-db-dev-data мог содержать данные от PG16/17 —
+  # если контейнер падает с ошибкой "PG_VERSION mismatch", удалите volume:
   #   docker-compose -f docker-compose.dev.yml down
-  #   docker volume rm uyezdny_uyezdny-db-dev-data-v18
+  #   docker volume rm uyezdny_uyezdny-db-dev-data
   #   docker-compose -f docker-compose.dev.yml up -d
   db-dev:
-    image: public.ecr.aws/docker/library/postgres:17-alpine
+    image: postgres:17-alpine
     container_name: uyezdny-db-dev
     ports:
       - "5433:5432"
@@ -42,7 +42,7 @@ services:
 
   # ===== Redis (для сессий/кэша/rate-limiting) =====
   redis-dev:
-    image: public.ecr.aws/docker/library/redis:7-alpine
+    image: redis:7-alpine
     container_name: uyezdny-redis-dev
     ports:
       - "6380:6379"
@@ -80,23 +80,26 @@ services:
     restart: unless-stopped
 
   # ===== n8n (автоматизация: брошенная корзина, дайджест, бонусы, AI) =====
-  # Пин синхронизирован с prod (docker-compose.yml) — устраняет дрейф схем workflow.
-  # n8n 2.x игнорирует BASIC_AUTH: дев-инстанс при первом старте также просит owner-аккаунт.
   n8n-dev:
-    image: n8nio/n8n:2.49.5
+    image: n8nio/n8n:2.48.7
     container_name: uyezdny-n8n-dev
+    entrypoint: ["tini", "--", "/bin/sh", "/usr/local/bin/conditera-n8n-entrypoint.sh"]
     ports:
-      - "5678:5678"
+      - "127.0.0.1:5678:5678"
     environment:
       - N8N_HOST=localhost
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://localhost:5678/
-      - GENERIC_TIMEZONE=Europe/Moscow
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=admin
+      - N8N_USER_FOLDER=/home/node/.n8n
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       - N8N_ENCRYPTION_KEY=dev_n8n_encryption_key_32_chars
+      - N8N_LOG_LEVEL=info
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - WEBHOOK_URL=http://localhost:5678/
+      - N8N_EDITOR_BASE_URL=http://127.0.0.1:5678/
+      - GENERIC_TIMEZONE=Europe/Moscow
       # App URL для cron-задач (URL нашего Next.js API)
       - APP_URL=http://host.docker.internal:3000
       # CRON_SECRET для авторизации cron-API запросов
@@ -107,7 +110,8 @@ services:
       - LLM_MODEL=qwen2.5:7b
     volumes:
       - uyezdny-n8n-dev-data:/home/node/.n8n
-      - ./n8n-workflows:/imports
+      - ./n8n-workflows:/imports:ro
+      - ./scripts/n8n-entrypoint.sh:/usr/local/bin/conditera-n8n-entrypoint.sh:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
