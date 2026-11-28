@@ -214,6 +214,15 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      - name: Seed isolated buyer and confectioner accounts for profile E2E
+        shell: bash
+        run: |
+          node scripts/db/seed-e2e-profile-users.mjs | tee /tmp/e2e-profile-accounts.log
+          sed -n '/^PROFILE_E2E_/p' /tmp/e2e-profile-accounts.log >> "$GITHUB_ENV"
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+
       - name: Export generated Supabase service-role key to CI runtime
         shell: bash
         run: |
