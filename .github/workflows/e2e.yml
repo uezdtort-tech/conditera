@@ -223,6 +223,7 @@ jobs:
       - name: Seed isolated buyer and confectioner accounts for profile E2E
         shell: bash
         run: |
+          set -o pipefail
           node scripts/db/seed-e2e-profile-users.mjs | tee /tmp/e2e-profile-accounts.log
           sed -n '/^PROFILE_E2E_/p' /tmp/e2e-profile-accounts.log >> "$GITHUB_ENV"
         env:
